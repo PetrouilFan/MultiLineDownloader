@@ -3,7 +3,6 @@ import time
 import client
 import os
 
-# URL = 'ipv4.download.thinkbroadband.com/200MB.zip'
 URL = input('URL: ')
 def download_file(URL):
     filename = f"{URL.split('/')[-1]}"

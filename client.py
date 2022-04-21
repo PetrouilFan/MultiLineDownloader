@@ -2,7 +2,6 @@ import socket
 import sys
 import threading
 from time import sleep
-from git import Object
 import psutil
 import os
 import hashlib
@@ -52,7 +51,7 @@ class part_handler:
         sizes.append(self.filesize-1)
         return sizes
 
-class Bar(Object):
+class Bar(object):
     def __init__(self,text,total,location,bar_size=None):
         self.text = text
         self.total = total
@@ -63,7 +62,10 @@ class Bar(Object):
         self.writer = Terminal_Writer((location[0],term.height-1+location[1]))
 
     def update(self,value):
-        percentage = round((value/self.total)*(100),1)
+        if self.total != 0:
+            percentage = round((value/self.total)*(100),1)
+        else:
+            percentage = 0
         bar_filled = round(round(percentage) / 100 * self.get_bar_size())
         bar = '█'*bar_filled + ' '*(self.get_bar_size() - bar_filled)
         self.writer.write(f"{self.text}: |{bar}| {percentage} %")
@@ -202,6 +204,13 @@ def multi_connection_handler(filename, filesize, file_writter,parts):
     for thread in threads:
         thread.join()
 
+def hashfile(filename):
+    openedFile = open(filename,'rb')
+    readFile = openedFile.read()
+    openedFile.close()
+    hash = hashlib.sha256(readFile).hexdigest()
+    print(f"File {filename} Hash: {hash}")
+
 def main(URL):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((HOST, PORT))
@@ -221,7 +230,7 @@ def main(URL):
     multi_connection_handler(filename,filesize,file_writter,parts)
     file_writter.close()
     sleep(0.5)
-    # hashfile(original_filename)
+    hashfile(original_filename)
 
 term = Terminal()
 bar = Progress()
