@@ -2,19 +2,29 @@ import socket
 import threading
 import os
 import sys
-import subprocess
 import hashlib
 from time import sleep
+import requests
+import urllib
 
 PORT = 10000
 SEPARATOR = "<SEP>"
-DOWNLOAD_LOCATION = ".tmp\\" # EMPTY FOR THE CURRENT DIRECTORY
+DOWNLOAD_LOCATION = ".tmp/" # EMPTY FOR THE CURRENT DIRECTORY
 MAX_SPLITTED_PARTS = 20
 
+download_items = {}
+
 try:
-    os.chdir(os.path.dirname(sys.argv[0]))
+    os.chdir(os.path.dirname(sys.argv[0])) # Change to Script Directory
 except:
-    pass
+    pass # Already on the script Directory
+
+class download_item(object):
+    def __init__(self,filename):
+        self.filename = filename
+        self.filesize = 0
+        self.finished_downloading = False
+        self.last_byte_downloaded = 0
 
 def part_calculator(filesize,total_threads,current_part,BUFFER_SIZE):
     total_parts = (filesize//total_threads)//(50*BUFFER_SIZE) # HOW MANY PARTS CAN BE CREATED OF AT LEAST 50 CHUNKS
@@ -56,6 +66,7 @@ def get_file_ends(filesize,parts):
     sizes.append(filesize-1)
     return sizes
 
+# Used to check the integrity of the file (Not implemented yet on the code)
 def hashfile(filename):
     openedFile = open(filename,'rb')
     readFile = openedFile.read()
@@ -63,13 +74,30 @@ def hashfile(filename):
     hash = hashlib.sha256(readFile).hexdigest()
     print(f"File {filename} Hash: {hash}")
 
-def download_file(URL,addr):
-    filename = f"{addr[0]}.{URL.split('/')[-1]}"
-    command = f'curl -o {DOWNLOAD_LOCATION}{filename} {URL}'
-    print(f"Downloading: {filename}")
-    subprocess.call(command.split(" "), stderr=subprocess.DEVNULL)
-    print(f"Finished:    {filename}")
-    return filename
+def get_filesize(URL):
+    user_agent = 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.9.0.7) Gecko/2009021910 Firefox/3.0.7'
+    headers={'User-Agent':user_agent,} 
+    request=urllib.request.Request(URL,None,headers) #The assembled request
+    response = urllib.request.urlopen(request)
+    return response.length
+
+def stream_file(URL,filename):
+    item = download_item(filename)
+    item.filesize = int(get_filesize(URL))
+    streamer = threading.Thread(target=stream_handler,args=(URL,filename,item))
+    streamer.daemon = True
+    streamer.start() 
+    return item
+
+def stream_handler(URL,filename,item):
+    item.filename = filename
+    with requests.get(URL, stream=True) as r:
+        r.raise_for_status()
+        with open(f"{DOWNLOAD_LOCATION}{filename}", 'wb') as f:
+            for chunk in r.iter_content(chunk_size=4096): 
+                f.write(chunk)
+                item.last_byte_downloaded += len(chunk)
+    item.finished_downloading = True
 
 def delete_file(filename):
     os.system(f"rm -rf {DOWNLOAD_LOCATION}{filename}")
@@ -78,9 +106,11 @@ def request_handler(conn,addr):
     with conn:
         print(f"Connected by {addr}")
         URL = conn.recv(4096).decode()
-        filename = download_file(URL,addr)
+        filename = f"{addr[0]}.{URL.split('/')[-1]}"
+        item = stream_file(URL,filename)
+        download_items[filename] = item
         _to_send = filename + SEPARATOR
-        _to_send += str(os.path.getsize(f"{DOWNLOAD_LOCATION}{filename}"))
+        _to_send += str(item.filesize)
         _to_send =_to_send.encode()
         conn.sendall(_to_send)
 
@@ -95,16 +125,20 @@ def send_handler(conn):
     current_part = int(data[5])
     start,end = part_calculator(filesize,total_ips,current_part,BUFFER_SIZE)
     cursor = start
+    item = download_items[filename]
+    while not os.path.isfile(DOWNLOAD_LOCATION+filename):
+        sleep(0.0001)
     with open(DOWNLOAD_LOCATION+filename, "rb") as f:
         while cursor <= end:
-            f.seek(cursor)
-            bytes_read = f.read(BUFFER_SIZE)
-            if not bytes_read:
-                print("Last Bytes Read:",bytes_read)
-                conn.close()
-                sleep(1)
-            conn.sendall(bytes_read)
-            cursor += len(bytes_read)
+            if cursor+BUFFER_SIZE < item.last_byte_downloaded or item.finished_downloading:
+                f.seek(cursor)
+                bytes_read = f.read(BUFFER_SIZE)    
+                if not bytes_read:
+                    conn.close()
+                conn.sendall(bytes_read)
+                cursor += len(bytes_read)
+            else:
+                sleep(0.0001)
         conn.close()
     hashfile(DOWNLOAD_LOCATION+filename)
 
