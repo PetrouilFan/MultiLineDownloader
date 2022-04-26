@@ -51,21 +51,6 @@ def get_file_ends(filesize,parts):
     sizes.append(filesize-1)
     return sizes
 
-def get_file_starts(filesize,parts):
-    sizes = []
-    _equal_chunks = filesize//parts
-    for x in range(parts):
-        sizes.append(_equal_chunks*x)
-    return sizes
-
-def get_file_ends(filesize,parts):
-    sizes = get_file_starts(filesize,parts)
-    sizes.pop(0)
-    for x in range(len(sizes)):
-        sizes[x] -= 1
-    sizes.append(filesize-1)
-    return sizes
-
 # Used to check the integrity of the file (Not implemented yet on the code)
 def hashfile(filename):
     openedFile = open(filename,'rb')
